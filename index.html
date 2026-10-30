@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neexa Kaiwa N4 Prototype</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 15px; max-width: 500px; margin: auto; background-color: #f0f4f8;}
+        #chatbox { height: 350px; overflow-y: auto; background: white; padding: 15px; border-radius: 8px; border: 1px solid #cdd4dc; margin-bottom: 10px;}
+        .pesan { margin-bottom: 15px; padding: 10px; border-radius: 8px; line-height: 1.4;}
+        .user { background: #dcf8c6; text-align: right; margin-left: 20%;}
+        .ai { background: #f1f0f0; margin-right: 20%;}
+        button { width: 100%; padding: 15px; font-size: 16px; background: #007bff; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; touch-action: none;}
+        button:disabled { background: #a5c8ed; cursor: not-allowed;}
+        #status { text-align: center; font-size: 13px; color: #666; font-style: italic; margin-bottom: 10px;}
+        .rapor { background: #fff3cd; padding: 15px; border-radius: 8px; border: 1px solid #ffeeba; margin-top: 15px; font-size: 14px;}
+        .rapor h3 { margin-top: 0; color: #856404; text-align: center;}
+        table { width: 100%; border-collapse: collapse; margin-top: 10px;}
+        th, td { border: 1px solid #dee2e6; padding: 8px; text-align: left;}
+        th { background: #e9ecef;}
+    </style>
+</head>
+<body>
+
+    <h2 style="text-align: center; color: #333;">Simulasi Kaiwa N4</h2>
+    
+    <div id="chatbox"></div>
+    <div id="status">Pencet tombol dan sapa AI untuk memulai...</div>
+
+    <button id="btnMulai">🎤 Tahan & Bicara</button>
+    <div id="raporArea"></div>
+
+    <script>
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbxhSq_3mQoyZS0geyDwN5Y6JLMOKK2DHo7IMNntBz2jSFubJ-wzCB11VNf6Wp3aIbvkmQ/exec";
+        
+        let riwayatChat = [];
+        let putaran = 0; 
+        const BATAS_PUTARAN = 7;
+
+        const chatbox = document.getElementById("chatbox");
+        const status = document.getElementById("status");
+        const btnMulai = document.getElementById("btnMulai");
+        const raporArea = document.getElementById("raporArea");
+
+        // Setelan Mesin Penangkap Suara
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const pengenalSuara = new SpeechRecognition();
+        pengenalSuara.lang = 'ja-JP'; 
+        pengenalSuara.interimResults = false;
+
+        // --- PERBAIKAN: SENSOR UNTUK MOUSE KOMPUTER DAN SENTUHAN HP ---
+        const mulaiRekam = (e) => {
+            if (e.type === 'touchstart') e.preventDefault(); 
+            pengenalSuara.start();
+            btnMulai.innerText = "🔴 Mendengarkan... (Lepas untuk kirim)";
+            btnMulai.style.background = "#dc3545";
+        };
+
+        const hentiRekam = (e) => {
+            if (e.type === 'touchend') e.preventDefault();
+            pengenalSuara.stop();
+            btnMulai.innerText = "Memproses...";
+            btnMulai.disabled = true;
+        };
+
+        // Pasang sensor Mouse (Komputer)
+        btnMulai.addEventListener('mousedown', mulaiRekam);
+        btnMulai.addEventListener('mouseup', hentiRekam);
+        
+        // Pasang sensor Sentuh (HP Android/iPhone)
+        btnMulai.addEventListener('touchstart', mulaiRekam, {passive: false});
+        btnMulai.addEventListener('touchend', hentiRekam, {passive: false});
+        // ----------------------------------------------------------------
+
+        pengenalSuara.onresult = (event) => {
+            const teksSiswa = event.results[0][0].transcript;
+            tambahPesan("Siswa", teksSiswa, "user");
+            putaran++; 
+            kirimKeAI(teksSiswa);
+        };
+
+        // Jika suara tidak terdengar/error
+        pengenalSuara.onerror = (event) => {
+            status.innerText = "Suara tidak terdengar, coba lagi.";
+            btnMulai.innerText = "🎤 Tahan & Bicara";
+            btnMulai.style.background = "#007bff";
+            btnMulai.disabled = false;
+        };
+
+        function tambahPesan(pengirim, teks, classNama) {
+            chatbox.innerHTML += `<div class="pesan ${classNama}"><b>${pengirim}:</b><br>${teks}</div>`;
+            chatbox.scrollTop = chatbox.scrollHeight;
+        }
+
+        function kirimKeAI(pesanSiswa) {
+            status.innerText = "AI sedang berpikir...";
+
+            fetch(GAS_URL, {
+                method: 'POST',
+                body: JSON.stringify({ pesan: pesanSiswa, history: riwayatChat, isEval: false })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if(data.status === "sukses") {
+                    let teksAI = data.balasan;
+                    let obrolanSelesai = false;
+
+                    // Deteksi Rem Tangan (Kata [SELESAI])
+                    if (teksAI.includes("[SELESAI]") || putaran >= BATAS_PUTARAN) {
+                        teksAI = teksAI.replace("[SELESAI]", "").trim();
+                        obrolanSelesai = true;
+                    }
+
+                    tambahPesan("AI Jepang", teksAI, "ai");
+                    riwayatChat.push({"role": "user", "text": pesanSiswa});
+                    riwayatChat.push({"role": "model", "text": teksAI});
+                    bacaTeks(teksAI);
+
+                    if (obrolanSelesai) {
+                        status.innerText = "Sesi selesai. Sedang membuat rapor...";
+                        btnMulai.style.display = "none"; // Hilangkan tombol
+                        mintaRapor();
+                    } else {
+                        status.innerText = `Putaran ${putaran} dari ${BATAS_PUTARAN}`;
+                        btnMulai.innerText = "🎤 Tahan & Bicara";
+                        btnMulai.style.background = "#007bff";
+                        btnMulai.disabled = false;
+                    }
+                }
+            })
+            // --- PERBAIKAN: JIKA INTERNET PUTUS ---
+            .catch(err => {
+                status.innerText = "Gagal terhubung ke server. Coba lagi.";
+                btnMulai.innerText = "🎤 Tahan & Bicara";
+                btnMulai.style.background = "#007bff";
+                btnMulai.disabled = false;
+            });
+        }
+
+        function mintaRapor() {
+            fetch(GAS_URL, {
+                method: 'POST',
+                body: JSON.stringify({ pesan: "", history: riwayatChat, isEval: true })
+            })
+            .then(res => res.json())
+            .then(data => {
+                const rapor = JSON.parse(data.balasan);
+                
+                let tabelHTML = `<table><tr><th>Ucapmu</th><th>Seharusnya</th><th>Catatan</th></tr>`;
+                rapor.koreksi.forEach(k => {
+                    tabelHTML += `<tr><td>${k.kamu_ucap}</td><td>${k.seharusnya}</td><td>${k.catatan}</td></tr>`;
+                });
+                tabelHTML += `</table>`;
+
+                raporArea.innerHTML = `
+                    <div class="rapor">
+                        <h3>Skor Akhir: ${rapor.skor}/100</h3>
+                        <p><b>Tata Bahasa:</b> ${rapor.tata_bahasa}</p>
+                        <p><b>Kosakata:</b> ${rapor.kosakata}</p>
+                        <p><b>Kelancaran:</b> ${rapor.kelancaran}</p>
+                        ${tabelHTML}
+                        <p style="margin-top:15px; color:#c82333;"><b>Instruksi AI:</b> ${rapor.kesimpulan}</p>
+                    </div>
+                `;
+                status.innerText = "Evaluasi selesai!";
+            })
+            .catch(err => {
+                status.innerText = "Gagal memuat rapor. Periksa koneksi internet.";
+            });
+        }
+
+        function bacaTeks(teks) {
+            const robot = new SpeechSynthesisUtterance(teks);
+            robot.lang = 'ja-JP';
+            window.speechSynthesis.speak(robot);
+        }
+    </script>
+</body>
+</html>
