@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Neexa Kaiwa N4 Prototype</title>
+    <title>Neexa Kaiwa N4 Prototype (Ngebut)</title>
     <style>
         body { font-family: Arial, sans-serif; padding: 15px; max-width: 500px; margin: auto; background-color: #f0f4f8;}
         #chatbox { height: 350px; overflow-y: auto; background: white; padding: 15px; border-radius: 8px; border: 1px solid #cdd4dc; margin-bottom: 10px;}
@@ -22,7 +22,7 @@
 </head>
 <body>
 
-    <h2 style="text-align: center; color: #333;">Simulasi Kaiwa N4</h2>
+    <h2 style="text-align: center; color: #333;">Simulasi Kaiwa N4 (Mode Kilat)</h2>
     
     <div id="chatbox"></div>
     <div id="status">Pencet tombol dan sapa AI untuk memulai...</div>
@@ -31,7 +31,9 @@
     <div id="raporArea"></div>
 
     <script>
-        const GAS_URL = "https://script.google.com/macros/s/AKfycbxhSq_3mQoyZS0geyDwN5Y6JLMOKK2DHo7IMNntBz2jSFubJ-wzCB11VNf6Wp3aIbvkmQ/exec";
+        // API KEY diletakkan langsung di Frontend
+        const API_KEY = "AQ.Ab8RN6KelCymFC4a7txFNiFlQoKig0htPIYs6gLWOxg5yAaW0g";
+        const API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent";
         
         let riwayatChat = [];
         let putaran = 0; 
@@ -42,13 +44,16 @@
         const btnMulai = document.getElementById("btnMulai");
         const raporArea = document.getElementById("raporArea");
 
-        // Setelan Mesin Penangkap Suara
+        // PEMANASAN MESIN SUARA: Menarik data suara bahasa Jepang sejak awal web dimuat
+        window.speechSynthesis.onvoiceschanged = () => {
+            window.speechSynthesis.getVoices(); 
+        };
+
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         const pengenalSuara = new SpeechRecognition();
         pengenalSuara.lang = 'ja-JP'; 
         pengenalSuara.interimResults = false;
 
-        // --- PERBAIKAN: SENSOR UNTUK MOUSE KOMPUTER DAN SENTUHAN HP ---
         const mulaiRekam = (e) => {
             if (e.type === 'touchstart') e.preventDefault(); 
             pengenalSuara.start();
@@ -63,23 +68,18 @@
             btnMulai.disabled = true;
         };
 
-        // Pasang sensor Mouse (Komputer)
         btnMulai.addEventListener('mousedown', mulaiRekam);
         btnMulai.addEventListener('mouseup', hentiRekam);
-        
-        // Pasang sensor Sentuh (HP Android/iPhone)
         btnMulai.addEventListener('touchstart', mulaiRekam, {passive: false});
         btnMulai.addEventListener('touchend', hentiRekam, {passive: false});
-        // ----------------------------------------------------------------
 
         pengenalSuara.onresult = (event) => {
             const teksSiswa = event.results[0][0].transcript;
             tambahPesan("Siswa", teksSiswa, "user");
             putaran++; 
-            kirimKeAI(teksSiswa);
+            kirimKeAILangsung(teksSiswa);
         };
 
-        // Jika suara tidak terdengar/error
         pengenalSuara.onerror = (event) => {
             status.innerText = "Suara tidak terdengar, coba lagi.";
             btnMulai.innerText = "🎤 Tahan & Bicara";
@@ -92,59 +92,93 @@
             chatbox.scrollTop = chatbox.scrollHeight;
         }
 
-        function kirimKeAI(pesanSiswa) {
-            status.innerText = "AI sedang berpikir...";
+        async function kirimKeAILangsung(pesanSiswa) {
+            status.innerText = "AI sedang berpikir kilat...";
 
-            fetch(GAS_URL, {
-                method: 'POST',
-                body: JSON.stringify({ pesan: pesanSiswa, history: riwayatChat, isEval: false })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if(data.status === "sukses") {
-                    let teksAI = data.balasan;
-                    let obrolanSelesai = false;
+            let jam = new Date().getHours();
+            let salam = (jam >= 4 && jam < 11) ? "Ohayou gozaimasu" : (jam >= 11 && jam < 15) ? "Konnichiwa" : "Konbanwa";
+            let instruksi = `Kamu teman Jepang ramah. Gunakan HANYA level JLPT N5-N4. Sekarang di Indonesia jam ${jam} (${salam}). ATURAN: 1. Jika ini awal chat, sapa pengguna dan tanya 1 hal ringan. 2. Gali topik 2 kali sebelum ganti. 3. Gunakan 'Chinamini'/'Tokoro de' jika ganti topik. 4. JIKA pengguna pamitan, letakkan teks '[SELESAI]'. 5. WAJIB balas sangat singkat, maksimal 1 atau 2 kalimat pendek agar percakapan mengalir cepat.`;
 
-                    // Deteksi Rem Tangan (Kata [SELESAI])
-                    if (teksAI.includes("[SELESAI]") || putaran >= BATAS_PUTARAN) {
-                        teksAI = teksAI.replace("[SELESAI]", "").trim();
-                        obrolanSelesai = true;
-                    }
+            let contents = riwayatChat.map(chat => ({ "role": chat.role, "parts": [{"text": chat.text}] }));
+            contents.push({ "role": "user", "parts": [{"text": pesanSiswa}] });
 
-                    tambahPesan("AI Jepang", teksAI, "ai");
-                    riwayatChat.push({"role": "user", "text": pesanSiswa});
-                    riwayatChat.push({"role": "model", "text": teksAI});
-                    bacaTeks(teksAI);
+            let payload = {
+                "systemInstruction": { "parts": [{ "text": instruksi }] },
+                "contents": contents,
+                "generationConfig": { "temperature": 0.7, "maxOutputTokens": 60 } // Limitasi keluaran agar respons seketika
+            };
 
-                    if (obrolanSelesai) {
-                        status.innerText = "Sesi selesai. Sedang membuat rapor...";
-                        btnMulai.style.display = "none"; // Hilangkan tombol
-                        mintaRapor();
-                    } else {
-                        status.innerText = `Putaran ${putaran} dari ${BATAS_PUTARAN}`;
-                        btnMulai.innerText = "🎤 Tahan & Bicara";
-                        btnMulai.style.background = "#007bff";
-                        btnMulai.disabled = false;
-                    }
+            try {
+                let response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-goog-api-key': API_KEY
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                let data = await response.json();
+                
+                if(data.error) {
+                    throw new Error(data.error.message);
                 }
-            })
-            // --- PERBAIKAN: JIKA INTERNET PUTUS ---
-            .catch(err => {
-                status.innerText = "Gagal terhubung ke server. Coba lagi.";
+
+                let teksAI = data.candidates[0].content.parts[0].text;
+                let obrolanSelesai = false;
+
+                if (teksAI.includes("[SELESAI]") || putaran >= BATAS_PUTARAN) {
+                    teksAI = teksAI.replace("[SELESAI]", "").trim();
+                    obrolanSelesai = true;
+                }
+
+                tambahPesan("AI Jepang", teksAI, "ai");
+                riwayatChat.push({"role": "user", "text": pesanSiswa});
+                riwayatChat.push({"role": "model", "text": teksAI});
+                
+                bacaTeks(teksAI);
+
+                if (obrolanSelesai) {
+                    status.innerText = "Sesi selesai. Sedang membuat rapor...";
+                    btnMulai.style.display = "none"; 
+                    mintaRaporLangsung();
+                } else {
+                    status.innerText = `Putaran ${putaran} dari ${BATAS_PUTARAN}`;
+                    btnMulai.innerText = "🎤 Tahan & Bicara";
+                    btnMulai.style.background = "#007bff";
+                    btnMulai.disabled = false;
+                }
+            } catch (err) {
+                status.innerText = "Error API: " + err.message;
+                alert("Mesin Error: \n" + err.message);
                 btnMulai.innerText = "🎤 Tahan & Bicara";
-                btnMulai.style.background = "#007bff";
+                btnMulai.style.background = "#dc3545";
                 btnMulai.disabled = false;
-            });
+            }
         }
 
-        function mintaRapor() {
-            fetch(GAS_URL, {
-                method: 'POST',
-                body: JSON.stringify({ pesan: "", history: riwayatChat, isEval: true })
-            })
-            .then(res => res.json())
-            .then(data => {
-                const rapor = JSON.parse(data.balasan);
+        async function mintaRaporLangsung() {
+            let instruksiRapor = "Kamu adalah guru penilai. Analisis riwayat percakapan. Keluarkan HANYA output JSON murni tanpa markdown, dengan format persis: " +
+                '{"skor": 85, "tata_bahasa": "komentar", "kosakata": "komentar", "kelancaran": "komentar", "koreksi": [{"kamu_ucap": "...", "seharusnya": "...", "catatan": "..."}], "kesimpulan": "pesan fokus latihan"}';
+
+            let contents = riwayatChat.map(chat => ({ "role": chat.role, "parts": [{"text": chat.text}] }));
+
+            let payload = {
+                "systemInstruction": { "parts": [{ "text": instruksiRapor }] },
+                "contents": contents,
+                "generationConfig": { "temperature": 0.2 }
+            };
+
+            try {
+                let response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': API_KEY },
+                    body: JSON.stringify(payload)
+                });
+                let data = await response.json();
+                let balasanAI = data.candidates[0].content.parts[0].text.replace(/```json/g, '').replace(/```/g, '').trim();
+                
+                let rapor = JSON.parse(balasanAI);
                 
                 let tabelHTML = `<table><tr><th>Ucapmu</th><th>Seharusnya</th><th>Catatan</th></tr>`;
                 rapor.koreksi.forEach(k => {
@@ -163,10 +197,9 @@
                     </div>
                 `;
                 status.innerText = "Evaluasi selesai!";
-            })
-            .catch(err => {
-                status.innerText = "Gagal memuat rapor. Periksa koneksi internet.";
-            });
+            } catch (err) {
+                status.innerText = "Gagal membuat rapor. Coba lagi.";
+            }
         }
 
         function bacaTeks(teks) {
