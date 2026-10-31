@@ -33,7 +33,7 @@
     <script>
         // API KEY diletakkan langsung di Frontend
         const API_KEY = "AQ.Ab8RN6KelCymFC4a7txFNiFlQoKig0htPIYs6gLWOxg5yAaW0g";
-        const API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent";
+        const API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + API_KEY;
         
         let riwayatChat = [];
         let putaran = 0; 
@@ -111,10 +111,7 @@
             try {
                 let response = await fetch(API_URL, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'x-goog-api-key': API_KEY
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
 
@@ -172,7 +169,7 @@
             try {
                 let response = await fetch(API_URL, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': API_KEY },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
                 let data = await response.json();
